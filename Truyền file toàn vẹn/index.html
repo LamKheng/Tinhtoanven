@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>File Transfer & Integrity Check</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+  <style>
+    * {
+      font-family: 'Roboto', sans-serif;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #f2f7ff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px;
+      margin: 0;
+    }
+
+    h2 {
+      color: #3742fa;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+      max-width: 500px;
+      width: 100%;
+    }
+
+    input[type="text"],
+    input[type="file"] {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0 20px 0;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      transition: 0.3s ease;
+    }
+
+    input:focus {
+      border-color: #1e90ff;
+      outline: none;
+    }
+
+    button {
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #1e90ff, #3742fa);
+      color: white;
+      font-size: 1rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+
+    button:hover {
+      background: linear-gradient(135deg, #3742fa, #1e90ff);
+    }
+
+    #status {
+      margin-top: 20px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #f1f2f6;
+      color: #2f3542;
+    }
+
+    a#downloadLink {
+      margin-top: 15px;
+      display: inline-block;
+      background: #2ed573;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    a#downloadLink:hover {
+      background: #20bf6b;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>📁 File Transfer with SHA-256 Check</h2>
+
+    <input id="room" type="text" placeholder="Enter Room Code">
+    <button onclick="joinRoom()">Join Room</button>
+
+    <input type="file" id="fileInput">
+    <button onclick="sendFile()">Send File</button>
+
+    <div id="status">🔔 Ready</div>
+    <a id="downloadLink" style="display:none;" href="#">Download File</a>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+  <script>
+    const socket = io();
+    let downloadUrl = '', expectedHash = '';
+
+    function joinRoom() {
+      const room = document.getElementById('room').value;
+      if (!room) return alert('Please enter a room!');
+      socket.emit('join', { room });
+      document.getElementById('status').innerText = '✅ Joined room: ' + room;
+    }
+
+    async function sendFile() {
+      const file = document.getElementById('fileInput').files[0];
+      const room = document.getElementById('room').value;
+      if (!file || !room) return alert('Choose a file and enter a room!');
+
+      const arrayBuffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      const reader = new FileReader();
+      reader.onload = e => {
+        socket.emit('send_file', {
+          room,
+          filename: file.name,
+          filedata: e.target.result,
+          filehash: hashHex
+        });
+      };
+      reader.readAsBinaryString(file);
+    }
+
+    socket.on('status', msg => {
+      document.getElementById('status').innerText = msg;
+    });
+
+    socket.on('file_result', data => {
+      const statusDiv = document.getElementById('status');
+      const link = document.getElementById('downloadLink');
+
+      if (data.status === 'ok') {
+        statusDiv.innerText = data.message;
+        downloadUrl = data.download_link;
+        expectedHash = data.filehash;
+        link.href = "#";
+        link.style.display = 'inline-block';
+      } else {
+        statusDiv.innerText = data.message;
+        link.style.display = 'none';
+        downloadUrl = '';
+        expectedHash = '';
+      }
+    });
+
+    document.getElementById('downloadLink').addEventListener('click'), async e => {
+      e.preventDefault();
+      if (!downloadUrl || !expectedHash) return;
+    }
+
+      document.getElementById('status').innerText = '⬇️ Downloading & verifying...';
+      const response = await fetch(downloadUrl);
+      const blob = await response.blob();
+
+      const buffer = await blob.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+      const computedHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      if (computedHash === expectedHash) {
+        document.getElementById('status').innerText = '✅ File verified. Downloading...';
+        const tempLink = document.createElement
